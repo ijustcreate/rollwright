@@ -46,7 +46,21 @@ Directly opening `index.html` also works for quick demos, but the local server i
 
 ### Version 2: Desktop + Local AI Product Track
 
-V2 is the planned next version. It keeps the useful parts of legacy flooring takeoff software, then adds Rollwright's differentiator:
+V2 now has a working browser prototype in `v2/` and a Tauri desktop scaffold in `src-tauri/`.
+
+Run the V2 prototype:
+
+```powershell
+npm run dev:v2
+```
+
+Open:
+
+```text
+http://localhost:4173/v2/
+```
+
+It keeps the useful parts of legacy flooring takeoff software, then adds Rollwright's differentiator:
 
 - floor space
 - roll space
@@ -65,6 +79,24 @@ Planned V2 direction:
 - OCR search and heatmap
 - deterministic roll optimizer
 - installer-ready exports
+
+Current V2 prototype includes:
+
+- ribbon command system
+- searchable material library
+- product intelligence badges
+- CAD-style plan canvas
+- roll U/V viewport
+- pattern-space toggle
+- installer warning space
+- AI Review panel
+- model manager endpoint check
+- plan text analyzer with fallback extraction
+- draft product approval flow
+- missing scope board
+- background job queue mock
+- JSON and installer packet export
+- Tauri sidecar command skeleton for `llama-server`
 
 Read:
 

@@ -14,3 +14,4 @@
 - [AI Guardrails](v2/AI_GUARDRAILS.md)
 - [Data Model Sketch](v2/DATA_MODEL_SKETCH.md)
 - [V2 Implementation Prompt](v2/V2_IMPLEMENTATION_PROMPT.md)
+- [V2 App Status](v2/V2_APP_STATUS.md)

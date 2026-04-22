@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Rollwright",
+  "version": "2.0.0-alpha.0",
+  "identifier": "com.rollwright.desktop",
+  "build": {
+    "frontendDist": "../v2",
+    "devUrl": "http://localhost:4173/v2/"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Rollwright V2",
+        "width": 1440,
+        "height": 960,
+        "minWidth": 1180,
+        "minHeight": 760
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": [
+      "binaries/llama-server"
+    ]
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}
