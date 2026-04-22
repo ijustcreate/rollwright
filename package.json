@@ -1,0 +1,14 @@
+{
+  "name": "rollwright",
+  "version": "1.0.0-local-mvp",
+  "private": true,
+  "type": "module",
+  "description": "Rollwright V1 local MVP: pattern-aware flooring takeoff, roll planning, and installer packet exports.",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

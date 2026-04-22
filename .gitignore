@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.*
+
+# Build output
+dist/
+build/
+out/
+.vite/
+.next/
+
+# Local app/runtime state
+models/
+*.gguf
+*.safetensors
+*.onnx
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Desktop packaging outputs
+src-tauri/target/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local browser/test profiles
+.edge-test/
+.chrome-test/
+
+# Environment files
+.env
+.env.*
+!.env.example
