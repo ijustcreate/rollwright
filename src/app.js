@@ -24,6 +24,11 @@ const MODES = {
     description: "Uses the least material it can. Good for price-sensitive work, but watch the seam warnings before trusting it.",
     weights: { waste: 60, seam: 15, pattern: 10, install: 10, remnant: 5 }
   },
+  bid_standard_low: {
+    label: "Bid Standard Low",
+    description: "Lowest bid that still follows conservative broadloom rules: no T-seams by default, no rotation, required roll-width seams only, and no tiny scraps pretending to be savings.",
+    weights: { waste: 55, seam: 25, pattern: 5, install: 10, remnant: 5 }
+  },
   seams: {
     label: "Cleanest Seams",
     description: "Protects customer-facing rooms and traffic paths, even when it costs a little more material.",
@@ -309,6 +314,11 @@ function renderMaterialForm(project) {
         <div class="grid-3">
           ${numberField("rollWidthFt", "Roll width, ft", toFeetNumber(material.rollWidth), "0.25")}
           ${numberField("rollLengthFt", "Available length, ft", toFeetNumber(material.rollLength), "0.25")}
+          ${numberField("rollPrice", "Roll price, $", material.rollPrice || 0, "0.01")}
+        </div>
+        <div class="grid-3">
+          ${numberField("pricePerSqYd", "Price per sq yd, $", material.pricePerSqYd || 0, "0.01")}
+          ${numberField("pricePerLinearFt", "Price per linear ft, $", material.pricePerLinearFt || 0, "0.01")}
           <div class="field">
             <label for="materialType">Material</label>
             <select id="materialType" name="materialType">
@@ -321,6 +331,24 @@ function renderMaterialForm(project) {
         <div class="grid-2">
           ${checkboxField("directionalPile", "Directional pile", material.directionalPile)}
           ${checkboxField("rotationAllowed", "Rotation allowed", material.rotationAllowed)}
+        </div>
+        <div class="grid-2">
+          ${checkboxField("loopCarpet", "Loop carpet / stricter seams", material.loopCarpet)}
+          ${checkboxField("tSeamsAllowed", "Allow T-seams", material.tSeamsAllowed)}
+        </div>
+        <div class="grid-3">
+          <div class="field">
+            <label for="seamPolicy">Seam policy</label>
+            <select id="seamPolicy" name="seamPolicy">
+              ${option("bid_standard_low", "Bid standard low", material.seamPolicy)}
+              ${option("required_only", "Required seams only", material.seamPolicy)}
+              ${option("limited", "Limited seams", material.seamPolicy)}
+              ${option("open", "Open seams", material.seamPolicy)}
+              ${option("none", "No seams", material.seamPolicy)}
+            </select>
+          </div>
+          ${numberField("maxSeams", "Max seams", material.maxSeams ?? 2, "1")}
+          ${numberField("minFillerIn", "Min filler strip, in", toInchesNumber(material.minFillerWidth || inches(18)), "0.25")}
         </div>
         <div class="grid-3">
           ${numberField("cutMarginIn", "Cut margin, in", toInchesNumber(material.cutMargin), "0.25")}
@@ -500,12 +528,15 @@ function renderMetrics(plan) {
   const installClass = riskClass(plan.metrics.installDifficulty);
   return `
     <div class="metric-grid">
-      <div class="metric-card"><span>Material used</span><strong>${formatUnits(plan.metrics.usedLength)}</strong><small>${formatArea(plan.metrics.cutArea)} cut area</small></div>
+      <div class="metric-card estimate-card"><span>Material needed</span><strong>${formatUnits(plan.metrics.orderLength)}</strong><small>${plan.metrics.orderSqYd.toFixed(2)} sq yd to buy/use</small></div>
+      <div class="metric-card estimate-card"><span>Estimated material cost</span><strong>${formatMoney(plan.metrics.materialCost)}</strong><small>${plan.metrics.costBasis}</small></div>
+      <div class="metric-card"><span>Length consumed</span><strong>${formatUnits(plan.metrics.usedLength)}</strong><small>${formatArea(plan.metrics.cutArea)} cut area</small></div>
       <div class="metric-card ${wasteClass}"><span>Waste</span><strong>${plan.metrics.wastePct.toFixed(1)}%</strong><small>${formatArea(plan.metrics.wasteArea)}</small></div>
       <div class="metric-card risk-low"><span>Usable remnant</span><strong>${plan.metrics.usableRemnantPct.toFixed(1)}%</strong><small>${plan.remnants.length} remnant zones</small></div>
       <div class="metric-card ${seamClass}"><span>Seam risk</span><strong>${plan.metrics.seamRisk}</strong><small>0 low, 100 high</small></div>
       <div class="metric-card ${patternClass}"><span>Pattern risk</span><strong>${plan.metrics.patternRisk}</strong><small>${plan.patternEnabled ? "Pattern active" : "Pattern off"}</small></div>
       <div class="metric-card ${installClass}"><span>Install difficulty</span><strong>${plan.metrics.installDifficulty}</strong><small>${plan.metrics.cutCount} cuts</small></div>
+      <div class="metric-card"><span>Seams</span><strong>${plan.metrics.seamCount}</strong><small>${plan.metrics.seamPolicyLabel}</small></div>
     </div>
   `;
 }
@@ -636,11 +667,11 @@ function renderExportPanel(project, plan) {
       <h3>Exports</h3>
       <div class="button-row">
         <button class="button tiny" type="button" data-action="export-json">${icon("download")}Project JSON</button>
-        <button class="button tiny" type="button" data-action="export-packet">${icon("print")}Installer packet</button>
+        <button class="button tiny" type="button" data-action="export-packet">${icon("print")}Print estimate</button>
         <button class="button tiny" type="button" data-action="reset-demo">${icon("refresh")}Reload demo</button>
       </div>
       <p class="hint" style="margin-top:10px">
-        This local MVP uses browser storage for accounts and projects. Hosted sharing should use a real auth and database layer.
+        Print estimate includes roll layout, total material needed, cost, seams, waste, and field warnings.
       </p>
     </div>
   `;
@@ -751,10 +782,12 @@ function renderRollSvg(project, plan) {
   const usedLength = Math.max(plan.metrics.usedLength, feet(8));
   const rollX = 40;
   const rollY = 44;
-  const rollW = 560;
-  const rollH = 650;
-  const scaleX = rollW / rollWidth;
-  const scaleY = rollH / usedLength;
+  const rollW = 540;
+  const scale = rollW / rollWidth;
+  const rollH = Math.max(180, usedLength * scale);
+  const viewH = Math.ceil(rollY + rollH + 76);
+  const scaleX = scale;
+  const scaleY = scale;
   const selectedSurfaceId = state.selectedType === "surface" ? state.selectedId : null;
   const selectedCutId = state.selectedType === "cut" ? state.selectedId : null;
 
@@ -763,14 +796,14 @@ function renderRollSvg(project, plan) {
     : "";
 
   return `
-    <svg viewBox="0 0 640 760" role="img" aria-label="Roll map">
+    <svg viewBox="0 0 640 ${viewH}" role="img" aria-label="Roll map">
       <defs>
         <marker id="arrowHead" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
           <path d="M0,0 L8,4 L0,8 Z" fill="#f6c85f"/>
         </marker>
       </defs>
-      <rect x="0" y="0" width="640" height="760" fill="rgba(8,10,12,.5)"/>
-      <text x="${rollX}" y="24" class="svg-small">Roll width ${formatUnits(rollWidth)}. V length consumed ${formatUnits(plan.metrics.usedLength)}.</text>
+      <rect x="0" y="0" width="640" height="${viewH}" fill="rgba(8,10,12,.5)"/>
+      <text x="${rollX}" y="24" class="svg-small">True-scale roll UV: width ${formatUnits(rollWidth)}, length consumed ${formatUnits(plan.metrics.usedLength)}. Scroll vertically for long rolls.</text>
       <rect x="${rollX}" y="${rollY}" width="${rollW}" height="${rollH}" fill="rgba(255,255,255,.025)" stroke="#71e7f5" stroke-width="2"/>
       ${renderRollFootMarks(rollX, rollY, rollW, rollH, rollWidth, usedLength)}
       ${patternLines}
@@ -804,7 +837,7 @@ function renderRollSvg(project, plan) {
         const y = rollY + remnant.v * scaleY;
         return `<text x="${x + 6}" y="${y + 14}" class="svg-small">${escapeSvg(remnant.suggestedUse.toUpperCase())}</text>`;
       }).join("")}
-      <text x="${rollX}" y="726" class="svg-small">Color is surface type. Gold arrows show pile direction. Pattern grid is shown when enabled.</text>
+      <text x="${rollX}" y="${viewH - 28}" class="svg-small">One grid square is proportional in U and V. A 12' x 20' cut now draws 12 wide and 20 long on the same scale.</text>
     </svg>
   `;
 }
@@ -1052,9 +1085,17 @@ function readMaterialForm(data, existing) {
     ...existing,
     rollWidth: feet(Number(data.get("rollWidthFt") || 12)),
     rollLength: feet(Number(data.get("rollLengthFt") || 120)),
+    rollPrice: Number(data.get("rollPrice") || 0),
+    pricePerSqYd: Number(data.get("pricePerSqYd") || 0),
+    pricePerLinearFt: Number(data.get("pricePerLinearFt") || 0),
     materialType: String(data.get("materialType") || "broadloom"),
     directionalPile: data.has("directionalPile"),
     rotationAllowed: data.has("rotationAllowed"),
+    loopCarpet: data.has("loopCarpet"),
+    tSeamsAllowed: data.has("tSeamsAllowed"),
+    seamPolicy: String(data.get("seamPolicy") || "bid_standard_low"),
+    maxSeams: Math.max(0, Math.round(Number(data.get("maxSeams") || 0))),
+    minFillerWidth: inches(Number(data.get("minFillerIn") || 18)),
     cutMargin: inches(Number(data.get("cutMarginIn") || 2)),
     trimMargin: inches(Number(data.get("trimMarginIn") || 2)),
     patternEnabled: data.has("patternEnabled"),
@@ -1246,6 +1287,15 @@ function addRectCuts(surface, width, rawLength, label, labelStart, orderStart, i
     });
   }
 
+  if (material.seamPolicy === "none" && cutWidth > material.rollWidth) {
+    warnings.push({
+      level: "hard",
+      title: "No-seam policy impossible",
+      message: `${surface.name} is ${formatUnits(cutWidth)} wide after allowances, wider than the ${formatUnits(material.rollWidth)} roll. A no-seam bid cannot cover this surface with this stock.`,
+      targetId: surface.id
+    });
+  }
+
   if (cutWidth <= material.rollWidth) {
     islands.push(makeIsland({
       id: `${surface.id}-${label}-${labelStart}`,
@@ -1267,7 +1317,10 @@ function addRectCuts(surface, width, rawLength, label, labelStart, orderStart, i
   for (let index = 0; index < dropCount; index += 1) {
     const isLast = index === dropCount - 1;
     const rawDropWidth = isLast ? cutWidth - material.rollWidth * (dropCount - 1) + seamAllowance : material.rollWidth;
-    const dropWidth = clamp(rawDropWidth, inches(8), material.rollWidth);
+    const minimumFiller = material.seamPolicy === "bid_standard_low" || material.loopCarpet
+      ? Math.max(material.minFillerWidth || inches(18), inches(18))
+      : inches(8);
+    const dropWidth = clamp(rawDropWidth, minimumFiller, material.rollWidth);
     islands.push(makeIsland({
       id: `${surface.id}-${label}-${labelStart + index}`,
       surface,
@@ -1280,7 +1333,7 @@ function addRectCuts(surface, width, rawLength, label, labelStart, orderStart, i
       pileDirection: "with_room",
       notes: [`${dropCount} drop layout`]
     }));
-    if (isLast && dropWidth < inches(18)) {
+    if (isLast && dropWidth < (material.minFillerWidth || inches(18))) {
       warnings.push({
         level: "warning",
         title: "Tiny filler strip",
@@ -1288,6 +1341,15 @@ function addRectCuts(surface, width, rawLength, label, labelStart, orderStart, i
         targetId: surface.id
       });
     }
+  }
+
+  if (material.seamPolicy === "bid_standard_low" && dropCount > 1) {
+    warnings.push({
+      level: "info",
+      title: "Required breadth seam",
+      message: `${surface.name} is wider than the roll, so Bid Standard Low allows the required breadth seam but still blocks T-seams and tiny filler savings.`,
+      targetId: surface.id
+    });
   }
 
   warnings.push({
@@ -1355,7 +1417,7 @@ function packIslands(islands, material, mode, project, warnings) {
       continue;
     }
 
-    if (current.items.length && current.u + island.width > material.rollWidth) {
+    if (current.items.length && shouldStartNewRollRow(current, island, material)) {
       closeRow();
     }
 
@@ -1411,6 +1473,15 @@ function createRow(v) {
   return { u: 0, v, height: 0, items: [] };
 }
 
+function shouldStartNewRollRow(row, island, material) {
+  if (row.u + island.width > material.rollWidth) return true;
+  const strictSeams = material.seamPolicy === "bid_standard_low" || material.seamPolicy === "required_only" || !material.tSeamsAllowed || material.loopCarpet;
+  if (!strictSeams || !row.items.length) return false;
+  const lengthMismatch = Math.abs(row.height - island.length) > inches(6);
+  const remnantFriendly = island.surfaceKind === "closet" || island.surfaceKind === "stair_run" || island.priority === "hidden" || island.priority === "low";
+  return lengthMismatch && !remnantFriendly;
+}
+
 function makeRemnant(id, u, v, width, length) {
   const area = width * length;
   let suggestedUse = "trash";
@@ -1448,6 +1519,10 @@ function sortIslands(islands, mode) {
     }
     if (modeKey === "waste") {
       return b.length - a.length || b.width - a.width || a.order - b.order;
+    }
+    if (modeKey === "bid_standard_low") {
+      if (a.width === b.width) return b.length - a.length || a.order - b.order;
+      return b.width - a.width || b.length - a.length || a.order - b.order;
     }
     if (modeKey === "seams" || modeKey === "pattern") {
       const aScore = (priorityRank[a.priority] || 0) * 100 + (trafficRank[a.traffic] || 0) * 20 + a.priorityBoost;
@@ -1518,6 +1593,43 @@ function applyFieldSense(project, material, islands, packed, warnings) {
     });
   }
 
+  if ((material.seamPolicy === "bid_standard_low" || material.seamPolicy === "required_only") && material.tSeamsAllowed) {
+    warnings.push({
+      level: "warning",
+      title: "T-seams allowed in strict bid",
+      message: "This estimate is set to a strict bid mode, but T-seams are allowed. If the goal is low bid while staying conservative, turn T-seams off.",
+      targetId: "material"
+    });
+  }
+
+  if (material.loopCarpet && material.tSeamsAllowed) {
+    warnings.push({
+      level: "warning",
+      title: "Loop carpet seam setting",
+      message: "Loop carpet is set, but T-seams are allowed. Loop goods should use stricter seam placement and cleaner cut sequencing.",
+      targetId: "material"
+    });
+  }
+
+  const totalSeams = islands.reduce((total, island) => total + (island.seamCount || 0), 0);
+  if (material.seamPolicy === "none" && totalSeams > 0) {
+    warnings.push({
+      level: "hard",
+      title: "No-seam rule violated",
+      message: `This plan has ${totalSeams} seam${totalSeams === 1 ? "" : "s"}, but the material profile is set to no seams.`,
+      targetId: "material"
+    });
+  }
+
+  if (material.maxSeams >= 0 && totalSeams > material.maxSeams) {
+    warnings.push({
+      level: "hard",
+      title: "Too many seams",
+      message: `This plan has ${totalSeams} seam${totalSeams === 1 ? "" : "s"}, above the max of ${material.maxSeams}.`,
+      targetId: "material"
+    });
+  }
+
   const stairCuts = islands.filter((island) => island.surfaceKind === "stair_run");
   if (stairCuts.length > 0 && project.mode === "waste") {
     warnings.push({
@@ -1545,9 +1657,13 @@ function calculateMetrics(project, material, islands, packed, warnings) {
   const usedLength = packed.usedLength;
   const consumedArea = material.rollWidth * usedLength;
   const wasteArea = Math.max(0, consumedArea - cutArea);
+  const orderLength = usedLength;
+  const orderSqYd = consumedArea / (inches(36) * inches(36));
+  const seamCount = islands.reduce((total, island) => total + (island.seamCount || 0), 0);
   const usableRemnantArea = packed.remnants
     .filter((remnant) => remnant.usableScore >= 48)
     .reduce((total, remnant) => total + remnant.area, 0);
+  const cost = estimateMaterialCost(material, orderLength, orderSqYd);
 
   const seamPenalty = warnings.reduce((total, warning) => {
     if (/seam|drop|filler|traffic/i.test(`${warning.title} ${warning.message}`)) {
@@ -1571,10 +1687,16 @@ function calculateMetrics(project, material, islands, packed, warnings) {
 
   return {
     usedLength,
+    orderLength,
+    orderSqYd,
     cutArea,
     wasteArea,
     wastePct,
     usableRemnantPct,
+    materialCost: cost.amount,
+    costBasis: cost.basis,
+    seamCount,
+    seamPolicyLabel: seamPolicyLabel(material),
     seamRisk,
     patternRisk,
     installDifficulty,
@@ -1600,6 +1722,44 @@ function explainPlan(project, metrics, warnings) {
     return `${mode.label} found a workable plan with ${metrics.wastePct.toFixed(1)}% waste, but it is carrying ${warn} installer warning${warn === 1 ? "" : "s"}. This is where the person with the knife gets the final vote.`;
   }
   return `${mode.label} generated a deterministic cut plan with ${metrics.wastePct.toFixed(1)}% waste and ${metrics.cutCount} cuts. Review the roll map, then export the installer packet.`;
+}
+
+function estimateMaterialCost(material, orderLength, orderSqYd) {
+  if (material.pricePerSqYd > 0) {
+    return {
+      amount: orderSqYd * material.pricePerSqYd,
+      basis: `${formatMoney(material.pricePerSqYd)} per sq yd`
+    };
+  }
+
+  if (material.pricePerLinearFt > 0) {
+    return {
+      amount: (orderLength / FOOT) * material.pricePerLinearFt,
+      basis: `${formatMoney(material.pricePerLinearFt)} per linear ft`
+    };
+  }
+
+  if (material.rollPrice > 0 && material.rollLength > 0) {
+    return {
+      amount: material.rollPrice * (orderLength / material.rollLength),
+      basis: `prorated from ${formatMoney(material.rollPrice)} roll`
+    };
+  }
+
+  return { amount: 0, basis: "enter roll or unit price" };
+}
+
+function seamPolicyLabel(material) {
+  const labels = {
+    bid_standard_low: "bid standard low",
+    required_only: "required only",
+    limited: "limited seams",
+    open: "open seams",
+    none: "no seams"
+  };
+  const loop = material.loopCarpet ? ", loop carpet strict" : "";
+  const t = material.tSeamsAllowed ? ", T-seams allowed" : ", no T-seams";
+  return `${labels[material.seamPolicy] || "bid standard low"}${loop}${t}`;
 }
 
 function layoutSurfaces(surfaces) {
@@ -1766,8 +1926,16 @@ function createDemoProject() {
     materialType: "broadloom",
     rollWidth: feet(12),
     rollLength: feet(120),
+    rollPrice: 0,
+    pricePerSqYd: 0,
+    pricePerLinearFt: 0,
     directionalPile: true,
     rotationAllowed: false,
+    loopCarpet: true,
+    tSeamsAllowed: false,
+    seamPolicy: "bid_standard_low",
+    maxSeams: 2,
+    minFillerWidth: inches(18),
     patternEnabled: true,
     repeatWidth: inches(18),
     repeatLength: inches(24),
@@ -1869,8 +2037,16 @@ function createDefaultProject(name, client) {
       materialType: "broadloom",
       rollWidth: feet(12),
       rollLength: feet(100),
+      rollPrice: 0,
+      pricePerSqYd: 0,
+      pricePerLinearFt: 0,
       directionalPile: true,
       rotationAllowed: false,
+      loopCarpet: false,
+      tSeamsAllowed: false,
+      seamPolicy: "bid_standard_low",
+      maxSeams: 2,
+      minFillerWidth: inches(18),
       patternEnabled: false,
       repeatWidth: inches(0),
       repeatLength: inches(0),
@@ -1894,6 +2070,14 @@ function normalizeMaterial(material) {
     ...material,
     rollWidth: material.rollWidth || feet(12),
     rollLength: material.rollLength || feet(100),
+    rollPrice: material.rollPrice || 0,
+    pricePerSqYd: material.pricePerSqYd || 0,
+    pricePerLinearFt: material.pricePerLinearFt || 0,
+    loopCarpet: Boolean(material.loopCarpet),
+    tSeamsAllowed: Boolean(material.tSeamsAllowed),
+    seamPolicy: material.seamPolicy || "bid_standard_low",
+    maxSeams: Number.isFinite(material.maxSeams) ? material.maxSeams : 2,
+    minFillerWidth: material.minFillerWidth || inches(18),
     cutMargin: material.cutMargin ?? inches(2),
     trimMargin: material.trimMargin ?? inches(2),
     repeatWidth: material.repeatWidth || 0,
@@ -1912,7 +2096,57 @@ function downloadProjectJson(project) {
   showToast("Project JSON exported.");
 }
 
+function renderPrintRollSvg(project, plan) {
+  const material = normalizeMaterial(project.material);
+  const rollWidth = material.rollWidth || feet(12);
+  const usedLength = Math.max(plan.metrics.usedLength, feet(8));
+  const rollX = 46;
+  const rollY = 44;
+  const rollW = 420;
+  const scale = rollW / rollWidth;
+  const rollH = Math.max(220, usedLength * scale);
+  const viewH = Math.ceil(rollY + rollH + 58);
+
+  return `
+    <svg viewBox="0 0 520 ${viewH}" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Printable roll layout">
+      <defs>
+        <pattern id="printGrid" width="${FOOT * scale}" height="${FOOT * scale}" patternUnits="userSpaceOnUse">
+          <path d="M ${FOOT * scale} 0 L 0 0 0 ${FOOT * scale}" fill="none" stroke="rgba(0,0,0,.16)" stroke-width="1"/>
+        </pattern>
+      </defs>
+      <rect x="0" y="0" width="520" height="${viewH}" fill="#888"/>
+      <rect x="${rollX}" y="${rollY}" width="${rollW}" height="${rollH}" fill="#fff" stroke="#222" stroke-width="2"/>
+      <rect x="${rollX}" y="${rollY}" width="${rollW}" height="${rollH}" fill="url(#printGrid)"/>
+      <text x="${rollX}" y="28" fill="#111" font-size="13">Roll width ${escapeSvg(formatUnits(rollWidth))}, length consumed ${escapeSvg(formatUnits(plan.metrics.usedLength))}</text>
+      ${plan.placements.map((placement, index) => {
+        const x = rollX + placement.u * scale;
+        const y = rollY + placement.v * scale;
+        const w = Math.max(3, placement.width * scale);
+        const h = Math.max(3, placement.length * scale);
+        const fill = placement.surfaceKind === "hall" ? "#c7bd7b" : placement.surfaceKind === "stair_run" ? "#d69b65" : "#c9c18f";
+        return `
+          <g>
+            <rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" stroke="#111" stroke-width="1.2"/>
+            <text x="${x + w / 2}" y="${y + h / 2}" text-anchor="middle" dominant-baseline="middle" fill="#111" font-size="11">${index + 1}</text>
+            <text x="${x + 5}" y="${y + 15}" fill="#111" font-size="10">${escapeSvg(shortLabel(placement.name, 22))}</text>
+            <text x="${x + 5}" y="${y + 28}" fill="#333" font-size="9">${escapeSvg(`${formatUnits(placement.width)} x ${formatUnits(placement.length)}`)}</text>
+          </g>
+        `;
+      }).join("")}
+      ${plan.remnants.map((remnant) => {
+        const x = rollX + remnant.u * scale;
+        const y = rollY + remnant.v * scale;
+        const w = Math.max(3, remnant.width * scale);
+        const h = Math.max(3, remnant.length * scale);
+        return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="#555" stroke-dasharray="5 4"/><text x="${x + 5}" y="${y + 14}" fill="#333" font-size="9">${escapeSvg(remnant.suggestedUse)}</text>`;
+      }).join("")}
+    </svg>
+  `;
+}
+
 function downloadInstallerPacket(project, plan) {
+  const material = normalizeMaterial(project.material);
+  const rollHeader = `${material.materialType || "Carpet"} - ${formatUnits(material.rollWidth)} wide x ${formatUnits(material.rollLength)} available`;
   const cutRows = plan.placements.map((cut, index) => `
     <tr>
       <td>${index + 1}</td>
@@ -1945,30 +2179,39 @@ function downloadInstallerPacket(project, plan) {
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>${escapeHtml(project.name)} Installer Packet</title>
+    <title>${escapeHtml(project.name)} Rollwright Estimate</title>
     <style>
-      body { font-family: Arial, sans-serif; color: #111; margin: 28px; }
+      body { font-family: Arial, sans-serif; color: #111; margin: 24px; background: #fff; }
       h1, h2 { margin-bottom: 6px; }
       p { line-height: 1.45; }
       table { border-collapse: collapse; width: 100%; margin: 12px 0 24px; font-size: 12px; }
       th, td { border: 1px solid #999; padding: 7px; text-align: left; vertical-align: top; }
       th { background: #eee; }
-      .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0; }
+      .meta { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 16px 0; }
       .box { border: 1px solid #999; padding: 10px; }
       li { margin-bottom: 8px; }
+      .roll-title { background: #d98b00; color: #111; padding: 6px 10px; font-weight: bold; border: 2px solid #333; border-bottom: 0; }
+      .estimate-window { border: 2px solid #333; background: #888; margin: 0 0 8px; overflow: auto; max-height: 900px; }
+      .waste-line { border: 1px solid #999; padding: 7px 10px; font-size: 13px; margin-bottom: 20px; }
       @media print { body { margin: 16mm; } }
     </style>
   </head>
   <body>
-    <h1>Rollwright Installer Packet</h1>
+    <h1>Rollwright Carpet Estimate</h1>
     <p><strong>${escapeHtml(project.name)}</strong>${project.client ? ` for ${escapeHtml(project.client)}` : ""}</p>
     <p>${escapeHtml(plan.explanation)}</p>
     <div class="meta">
       <div class="box"><strong>Mode</strong><br>${escapeHtml(MODES[project.mode]?.label || project.mode)}</div>
-      <div class="box"><strong>Used Length</strong><br>${formatUnits(plan.metrics.usedLength)}</div>
+      <div class="box"><strong>Material Needed</strong><br>${formatUnits(plan.metrics.orderLength)}</div>
+      <div class="box"><strong>Square Yards</strong><br>${plan.metrics.orderSqYd.toFixed(2)}</div>
+      <div class="box"><strong>Material Cost</strong><br>${formatMoney(plan.metrics.materialCost)}</div>
       <div class="box"><strong>Waste</strong><br>${plan.metrics.wastePct.toFixed(1)}%</div>
+      <div class="box"><strong>Seams</strong><br>${plan.metrics.seamCount}</div>
       <div class="box"><strong>Confidence</strong><br>${plan.metrics.confidence}%</div>
     </div>
+    <div class="roll-title">${escapeHtml(rollHeader)}</div>
+    <div class="estimate-window">${renderPrintRollSvg(project, plan)}</div>
+    <div class="waste-line">${plan.metrics.wastePct.toFixed(1)}% waste (${formatUnits(plan.metrics.usedLength)}, ${plan.metrics.orderSqYd.toFixed(2)} SY). Seam policy: ${escapeHtml(plan.metrics.seamPolicyLabel)}.</div>
     <h2>Cut List</h2>
     <table>
       <thead><tr><th>#</th><th>Piece</th><th>Surface</th><th>Width</th><th>Length</th><th>Roll Position</th><th>Pattern Phase</th><th>Note</th></tr></thead>
@@ -1983,8 +2226,8 @@ function downloadInstallerPacket(project, plan) {
     <ul>${warningRows || "<li>No warnings. Field verify before cutting.</li>"}</ul>
   </body>
 </html>`;
-  downloadText(`${slug(project.name)}-installer-packet.html`, html, "text/html");
-  showToast("Installer packet exported as HTML.");
+  downloadText(`${slug(project.name)}-rollwright-estimate.html`, html, "text/html");
+  showToast("Print estimate exported as HTML.");
 }
 
 function importProjectFromFile(event) {
@@ -2167,6 +2410,11 @@ function formatUnits(units) {
 function formatArea(areaUnits) {
   const squareFeet = Number(areaUnits || 0) / (FOOT * FOOT);
   return `${squareFeet.toFixed(1)} sq ft`;
+}
+
+function formatMoney(value) {
+  const amount = Number(value || 0);
+  return amount ? `$${amount.toFixed(2)}` : "$0.00";
 }
 
 function fraction(sixteenths) {

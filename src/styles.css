@@ -454,6 +454,15 @@ a {
   min-height: 620px;
 }
 
+.roll-canvas {
+  max-height: 72vh;
+  overflow: auto;
+}
+
+.roll-canvas svg {
+  min-width: 640px;
+}
+
 .section {
   border-top: 1px solid var(--line);
   padding: 12px 0 0;
@@ -597,7 +606,7 @@ a {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   padding: 12px;
   border-bottom: 1px solid var(--line);
@@ -609,6 +618,15 @@ a {
   border-radius: 6px;
   padding: 9px;
   background: rgba(255, 255, 255, 0.045);
+}
+
+.metric-card.estimate-card {
+  border-color: rgba(100, 221, 145, 0.42);
+  background: rgba(100, 221, 145, 0.08);
+}
+
+.metric-card.estimate-card strong {
+  color: var(--green);
 }
 
 .metric-card span {

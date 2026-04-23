@@ -44,59 +44,19 @@ steve / rollwright
 
 Directly opening `index.html` also works for quick demos, but the local server is better for sharing on the same network.
 
-### Version 2: Desktop + Local AI Product Track
+### Deprecated V2 Prototype
 
-V2 now has a working browser prototype in `v2/` and a Tauri desktop scaffold in `src-tauri/`.
+The experimental V2 prototype in `v2/` is deprecated. It was useful as a design spike, but it did not serve the immediate estimating workflow well enough.
 
-Run the V2 prototype:
+Current focus is back on the main estimator at the repo root:
 
-```powershell
-npm run dev:v2
-```
-
-Open:
-
-```text
-http://localhost:4173/v2/
-```
-
-It keeps the useful parts of legacy flooring takeoff software, then adds Rollwright's differentiator:
-
-- floor space
-- roll space
-- pattern space
-- installer-risk space
-
-Planned V2 direction:
-
-- Tauri desktop app
-- React/TypeScript UI
-- SQLite local storage
-- local Gemma model through a bundled llama.cpp server sidecar
-- AI draft takeoff review
-- smart catalog extraction
-- missing scope board
-- OCR search and heatmap
-- deterministic roll optimizer
-- installer-ready exports
-
-Current V2 prototype includes:
-
-- ribbon command system
-- searchable material library
-- product intelligence badges
-- CAD-style plan canvas
-- roll U/V viewport
-- pattern-space toggle
-- installer warning space
-- AI Review panel
-- model manager endpoint check
-- plan text analyzer with fallback extraction
-- draft product approval flow
-- missing scope board
-- background job queue mock
-- JSON and installer packet export
-- Tauri sidecar command skeleton for `llama-server`
+- accurate true-scale roll U/V visualization
+- clear material-needed estimate
+- roll stock length/width and pricing
+- seam policy controls
+- loop carpet setting
+- Bid Standard Low estimating mode
+- print/export estimate sheets
 
 Read:
 
