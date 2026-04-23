@@ -93,6 +93,7 @@ const state = {
   selectedId: null,
   formKind: "room",
   authMode: "login",
+  warningsExpanded: false,
   toast: ""
 };
 
@@ -109,8 +110,11 @@ function init() {
 
 function render() {
   if (!app) return;
+  const scrollPositions = captureScrollPositions();
   app.innerHTML = state.user ? renderApp() : renderAuth();
   bindEvents();
+  applyTooltips();
+  restoreScrollPositions(scrollPositions);
 }
 
 function renderAuth() {
@@ -277,7 +281,7 @@ function renderFloorPanel(project, plan) {
       <div class="panel-body">
         <div class="canvas-wrap">${renderFloorSvg(project, plan)}</div>
       </div>
-      <div class="panel-body scroll-body">
+      <div class="panel-body scroll-body" data-scroll-key="floor-editor">
         ${renderProjectSetup(project)}
         ${renderMaterialForm(project)}
         ${renderSurfaceForm(project)}
@@ -507,7 +511,7 @@ function renderRollPanel(project, plan) {
         </select>
       </div>
       ${renderMetrics(plan)}
-      <div class="panel-body scroll-body">
+      <div class="panel-body scroll-body" data-scroll-key="roll-map">
         <div class="canvas-wrap roll-canvas">${renderRollSvg(project, plan)}</div>
         <section class="section">
           <div class="mode-card">
@@ -556,7 +560,7 @@ function renderInspector(project, plan) {
         </div>
         <span class="badge ${plan.metrics.confidence >= 78 ? "good" : plan.metrics.confidence >= 58 ? "warn" : "bad"}">${plan.metrics.confidence}% confidence</span>
       </div>
-      <div class="panel-body scroll-body">
+      <div class="panel-body scroll-body" data-scroll-key="inspector">
         ${selected ? renderSelectedInspector(project, plan, selected, targetedWarnings) : renderNoSelection(project, plan)}
         ${renderWarnings(plan.warnings)}
         ${renderExportPanel(project, plan)}
@@ -598,7 +602,7 @@ function renderSelectedInspector(project, plan, selected, targetedWarnings) {
           <button class="button tiny ${override.preserve ? "warn" : ""}" type="button" data-action="toggle-cut-preserve" data-cut-id="${selected.id}">${icon("tag")}${override.preserve ? "Unmark remnant" : "Preserve remnant"}</button>
         </div>
       </div>
-      ${targetedWarnings.length ? `<div class="inspector-card">${renderWarnings(targetedWarnings, "Selected Warnings")}</div>` : ""}
+      ${targetedWarnings.length ? `<div class="badge-row" style="margin-top:8px"><span class="badge warn">${targetedWarnings.length} selected warning${targetedWarnings.length === 1 ? "" : "s"}</span></div>` : ""}
     `;
   }
 
@@ -621,43 +625,84 @@ function renderSelectedInspector(project, plan, selected, targetedWarnings) {
       </div>
       <form class="grid-2" id="surfaceEditForm" data-surface-id="${surface.id}" style="margin-top:12px">
         <div class="field">
+          <label for="selectedName">Name</label>
+          <input id="selectedName" name="name" value="${escapeAttr(surface.name)}" />
+        </div>
+        <div class="field">
           <label for="selectedPriority">Priority</label>
           <select id="selectedPriority" name="priority">
             ${Object.entries(PRIORITY_LABELS).map(([value, label]) => option(value, label, surface.priority)).join("")}
           </select>
         </div>
         <div class="field">
+          <label for="selectedTraffic">Traffic</label>
+          <select id="selectedTraffic" name="traffic">
+            ${Object.entries(TRAFFIC_LABELS).map(([value, label]) => option(value, label, surface.traffic)).join("")}
+          </select>
+        </div>
+        <div class="field">
           <label for="selectedExtraMargin">Extra margin, in</label>
           <input id="selectedExtraMargin" name="extraMarginIn" type="number" min="0" step="0.25" value="${toInchesNumber(surface.extraMargin || 0)}" />
         </div>
+        ${renderSelectedSurfaceDimensionFields(surface)}
       </form>
       <div class="button-row" style="margin-top:12px">
         <button class="button tiny danger" type="button" data-action="delete-surface" data-surface-id="${surface.id}">${icon("trash")}Delete surface</button>
       </div>
     </div>
-    ${targetedWarnings.length ? `<div class="inspector-card">${renderWarnings(targetedWarnings, "Selected Warnings")}</div>` : ""}
+    ${targetedWarnings.length ? `<div class="badge-row" style="margin-top:8px"><span class="badge warn">${targetedWarnings.length} selected warning${targetedWarnings.length === 1 ? "" : "s"}</span></div>` : ""}
+  `;
+}
+
+function renderSelectedSurfaceDimensionFields(surface) {
+  if (surface.kind === "stair_run") {
+    return `
+      ${numberField("selectedStairCount", "Stairs", surface.stairCount || 1, "1")}
+      ${numberField("selectedTreadWidthIn", "Tread width, in", toInchesNumber(surface.treadWidth || 0), "0.25")}
+      ${numberField("selectedTreadDepthIn", "Tread depth, in", toInchesNumber(surface.treadDepth || 0), "0.25")}
+      ${numberField("selectedRiserHeightIn", "Riser height, in", toInchesNumber(surface.riserHeight || 0), "0.25")}
+      ${numberField("selectedStairAllowanceIn", "Stair allowance, in", toInchesNumber(surface.stairAllowance || 0), "0.25")}
+    `;
+  }
+
+  return `
+    ${numberField("selectedWidthFt", "Width, ft", toFeetNumber(surface.width || 0), "0.25")}
+    ${numberField("selectedLengthFt", "Length, ft", toFeetNumber(surface.length || 0), "0.25")}
+    ${surface.kind === "l_room" ? `
+      ${numberField("selectedReturnWidthFt", "Return width, ft", toFeetNumber(surface.returnWidth || 0), "0.25")}
+      ${numberField("selectedReturnLengthFt", "Return length, ft", toFeetNumber(surface.returnLength || 0), "0.25")}
+    ` : ""}
   `;
 }
 
 function renderWarnings(warnings, title = "FieldSense") {
   const ordered = warnings.slice().sort((a, b) => warningWeight(b.level) - warningWeight(a.level));
-  const shown = ordered.slice(0, title === "FieldSense" ? 8 : 5);
+  const shown = ordered.slice(0, title === "FieldSense" ? 6 : 4);
+  const hardCount = ordered.filter((item) => item.level === "hard").length;
+  const warnCount = ordered.filter((item) => item.level === "warning").length;
+  const open = state.warningsExpanded || hardCount > 0 ? "open" : "";
   return `
-    <div class="inspector-card">
-      <div class="section-title"><h3>${title}</h3><span class="badge ${ordered.some((item) => item.level === "hard") ? "bad" : ordered.some((item) => item.level === "warning") ? "warn" : "good"}">${ordered.length} notes</span></div>
-      ${shown.length ? `
-        <div class="warning-list">
-          ${shown.map((warning) => `
-            <div class="warning-item ${warning.level}">
-              <h4>${escapeHtml(warning.title)}</h4>
-              <p>${escapeHtml(warning.message)}</p>
-            </div>
-          `).join("")}
-        </div>
-      ` : `
-        <div class="empty-state"><div><strong>No warnings</strong><p>This plan is clean on the current rules. Still field verify before cutting.</p></div></div>
-      `}
-    </div>
+    <details class="inspector-card warning-drawer" ${open}>
+      <summary>
+        <span>${title}</span>
+        <span class="badge ${hardCount ? "bad" : warnCount ? "warn" : "good"}">${hardCount ? `${hardCount} hard` : warnCount ? `${warnCount} review` : "clean"}</span>
+      </summary>
+      <div class="warning-drawer-body">
+        ${shown.length ? `
+          <div class="warning-list">
+            ${shown.map((warning) => `
+              <div class="warning-item ${warning.level}">
+                <h4>${escapeHtml(warning.title)}</h4>
+                <p>${escapeHtml(warning.message)}</p>
+              </div>
+            `).join("")}
+          </div>
+          ${ordered.length > shown.length ? `<p class="hint">${ordered.length - shown.length} more warning${ordered.length - shown.length === 1 ? "" : "s"} hidden. Fix the hard issues first.</p>` : ""}
+        ` : `
+          <p class="hint">No warnings. Still field verify before cutting.</p>
+        `}
+      </div>
+    </details>
   `;
 }
 
@@ -847,6 +892,115 @@ function bindEvents() {
   bindAppEvents();
 }
 
+function captureScrollPositions() {
+  const positions = {};
+  document.querySelectorAll("[data-scroll-key]").forEach((node) => {
+    positions[node.dataset.scrollKey] = {
+      top: node.scrollTop,
+      left: node.scrollLeft
+    };
+  });
+  return positions;
+}
+
+function restoreScrollPositions(positions) {
+  const restore = () => {
+    document.querySelectorAll("[data-scroll-key]").forEach((node) => {
+      const position = positions[node.dataset.scrollKey];
+      if (!position) return;
+      node.scrollTop = position.top;
+      node.scrollLeft = position.left;
+    });
+  };
+  if (window.requestAnimationFrame) {
+    window.requestAnimationFrame(restore);
+  } else {
+    window.setTimeout(restore, 0);
+  }
+}
+
+function applyTooltips() {
+  const tips = {
+    projectName: "Internal name for this estimate.",
+    projectClient: "Customer, job, or address name for reports.",
+    rollWidthFt: "The usable width of the carpet roll. Common residential widths are 12 ft and 15 ft.",
+    rollLengthFt: "How much roll length is available. Use this when you only have a partial roll left.",
+    rollPrice: "Total price for the available roll. Used only if per-yard or per-linear-foot prices are blank.",
+    pricePerSqYd: "Material price by square yard. This is usually the clearest carpet pricing basis.",
+    pricePerLinearFt: "Price for each linear foot down the roll. Useful when stock is sold by roll length.",
+    materialType: "Broadloom, runner, or sheet goods. This affects seam and roll assumptions.",
+    directionalPile: "Keeps all cuts facing the same pile direction so shade does not flip between rooms.",
+    rotationAllowed: "Allows turning pieces sideways. Leave off for directional pile, patterned, or broadloom bids unless you know it is allowed.",
+    loopCarpet: "Loop carpet uses stricter seam handling because rows and edge quality show mistakes more easily.",
+    tSeamsAllowed: "Allows a seam to end into another seam. For conservative carpet bids, keep this off.",
+    seamPolicy: "Controls how aggressive the estimate can be with seams. Bid Standard Low minimizes material while keeping conservative rules.",
+    maxSeams: "Maximum seams allowed before the plan is flagged.",
+    minFillerIn: "Smallest allowed filler strip. Tiny strips can look bad and create installation trouble.",
+    cutMarginIn: "Extra material added to each cut before layout. Covers handling and rough cut needs.",
+    trimMarginIn: "Extra material for final wall trimming and out-of-square rooms.",
+    matchType: "How patterned carpet repeats line up between drops.",
+    patternEnabled: "Turn on when the material has a visible pattern repeat.",
+    repeatWidthIn: "Pattern repeat across the roll width.",
+    repeatLengthIn: "Pattern repeat down the roll length.",
+    dropOffsetIn: "How far the next drop's pattern shifts for drop-match carpet. If this is wrong, seams can look mismatched.",
+    phaseToleranceIn: "Allowed pattern mismatch before Rollwright warns you to field verify.",
+    surfaceKind: "Choose the type of surface to add. This controls what dimensions the form asks for.",
+    surfaceName: "Room or cut area name used in the roll map and print estimate.",
+    priority: "How visible or important this room is. Showpiece rooms get stricter seam warnings.",
+    traffic: "How much walking happens here. Main traffic paths get seam warnings.",
+    widthFt: "Surface width in feet.",
+    lengthFt: "Surface length in feet.",
+    returnWidthFt: "L-shape return width.",
+    returnLengthFt: "L-shape return length.",
+    stairCount: "Number of steps in the stair run.",
+    treadWidthIn: "Width across each stair tread.",
+    treadDepthIn: "Depth of each tread from nose to riser.",
+    riserHeightIn: "Height of each riser.",
+    stairAllowanceIn: "Extra material for wrapping and fitting stairs.",
+    runnerWidthIn: "Finished runner width for stair runner installs.",
+    installStyle: "How carpet is installed on the stairs.",
+    pileDirection: "Direction the stair pile should run.",
+    selectedName: "Edit the selected surface name.",
+    selectedPriority: "Change how strict Rollwright should be about seams in this surface.",
+    selectedTraffic: "Change traffic level for seam-risk scoring.",
+    selectedExtraMargin: "Add extra cut margin to only this selected surface.",
+    selectedWidthFt: "Edit selected surface width.",
+    selectedLengthFt: "Edit selected surface length.",
+    selectedReturnWidthFt: "Edit selected L-shape return width.",
+    selectedReturnLengthFt: "Edit selected L-shape return length.",
+    selectedStairCount: "Edit selected stair count.",
+    selectedTreadWidthIn: "Edit selected stair tread width.",
+    selectedTreadDepthIn: "Edit selected tread depth.",
+    selectedRiserHeightIn: "Edit selected riser height.",
+    selectedStairAllowanceIn: "Edit stair fitting allowance."
+  };
+
+  document.querySelectorAll("label[for]").forEach((label) => {
+    const tip = tips[label.getAttribute("for")];
+    if (tip) label.title = tip;
+  });
+  document.querySelectorAll("input, select, textarea").forEach((control) => {
+    const tip = tips[control.id] || tips[control.name];
+    if (tip) control.title = tip;
+  });
+  document.querySelectorAll("button:not([title])").forEach((button) => {
+    const text = button.textContent.trim().replace(/\s+/g, " ");
+    const action = button.dataset.action;
+    const tooltips = {
+      generate: "Regenerate the estimate and roll layout from the current settings.",
+      "new-project": "Create a blank local estimate.",
+      "export-json": "Export all project data as JSON.",
+      "export-packet": "Export a print-friendly carpet estimate sheet.",
+      "reset-demo": "Add a fresh demo project.",
+      "toggle-surface-flag": "Toggle this rule on the selected surface.",
+      "delete-surface": "Remove the selected surface from the estimate.",
+      "toggle-cut-lock": "Lock this cut placement so future optimization keeps it visible.",
+      "toggle-cut-preserve": "Mark this cut/remnant as worth preserving."
+    };
+    button.title = tooltips[action] || text || "Rollwright control";
+  });
+}
+
 function bindAuthEvents() {
   const form = document.querySelector("#authForm");
   if (!form) return;
@@ -943,8 +1097,24 @@ function bindAppEvents() {
     const surface = project?.surfaces.find((item) => item.id === surfaceId);
     if (!surface) return;
     const data = new FormData(event.currentTarget);
+    surface.name = String(data.get("name") || surface.name).trim() || surface.name;
     surface.priority = String(data.get("priority") || surface.priority);
+    surface.traffic = String(data.get("traffic") || surface.traffic);
     surface.extraMargin = inches(Number(data.get("extraMarginIn") || 0));
+    if (surface.kind === "stair_run") {
+      surface.stairCount = Math.max(1, Math.round(Number(data.get("selectedStairCount") || surface.stairCount || 1)));
+      surface.treadWidth = inches(Number(data.get("selectedTreadWidthIn") || toInchesNumber(surface.treadWidth || 0)));
+      surface.treadDepth = inches(Number(data.get("selectedTreadDepthIn") || toInchesNumber(surface.treadDepth || 0)));
+      surface.riserHeight = inches(Number(data.get("selectedRiserHeightIn") || toInchesNumber(surface.riserHeight || 0)));
+      surface.stairAllowance = inches(Number(data.get("selectedStairAllowanceIn") || toInchesNumber(surface.stairAllowance || 0)));
+    } else {
+      surface.width = feet(Number(data.get("selectedWidthFt") || toFeetNumber(surface.width || 0)));
+      surface.length = feet(Number(data.get("selectedLengthFt") || toFeetNumber(surface.length || 0)));
+      if (surface.kind === "l_room") {
+        surface.returnWidth = feet(Number(data.get("selectedReturnWidthFt") || toFeetNumber(surface.returnWidth || 0)));
+        surface.returnLength = feet(Number(data.get("selectedReturnLengthFt") || toFeetNumber(surface.returnLength || 0)));
+      }
+    }
     touch(project);
     saveProjects();
     render();

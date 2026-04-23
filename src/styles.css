@@ -185,6 +185,22 @@ a {
   padding: 10px 11px;
 }
 
+.field select,
+.inline-select {
+  color: var(--text);
+  background-color: #20252a;
+}
+
+.field select option,
+.inline-select option {
+  color: #111;
+  background: #ffffff;
+}
+
+[title] {
+  cursor: help;
+}
+
 .field textarea {
   resize: vertical;
   min-height: 78px;
@@ -675,6 +691,45 @@ a {
   border-radius: 6px;
   padding: 12px;
   background: rgba(255, 255, 255, 0.045);
+}
+
+.warning-drawer {
+  padding: 0;
+}
+
+.warning-drawer summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.warning-drawer summary::-webkit-details-marker {
+  display: none;
+}
+
+.warning-drawer summary::before {
+  content: "+";
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+}
+
+.warning-drawer[open] summary::before {
+  content: "-";
+}
+
+.warning-drawer-body {
+  border-top: 1px solid var(--line);
+  padding: 10px 12px 12px;
 }
 
 .inspector-card + .inspector-card {
